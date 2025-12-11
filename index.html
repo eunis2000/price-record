@@ -254,10 +254,10 @@
                 const searchQuery = ref("");
                 const filterCategory = ref("");
                 
-                // 修改預設順序：Description 放在 Category 之前
+                // 修改：將 Category 的 label 改為 "Trade"
                 const exportColumns = ref([
                     { key: 'desc', label: 'Description', active: true },
-                    { key: 'category', label: 'Category', active: true },
+                    { key: 'category', label: 'Trade', active: true },
                     { key: 'unit', label: 'Unit', active: true },
                     { key: 'rate', label: 'Rate', active: true },
                     { key: 'date', label: 'Date', active: true },
@@ -391,23 +391,31 @@
                                 const lines = content.split(/\r\n|\n/);
                                 if (lines.length < 2) return;
 
-                                // 智能標題偵測 (Smart Header Detection)
                                 const headerRow = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+                                
+                                // 智慧對應：同時尋找 'trade' 或 'category'
+                                const findIndex = (keys) => {
+                                    for (const key of keys) {
+                                        const idx = headerRow.indexOf(key);
+                                        if (idx !== -1) return idx;
+                                    }
+                                    return -1;
+                                };
+
                                 const map = {
-                                    desc: headerRow.indexOf('description'),
-                                    category: headerRow.indexOf('category'),
-                                    unit: headerRow.indexOf('unit'),
-                                    rate: headerRow.indexOf('rate'),
-                                    date: headerRow.indexOf('date'),
-                                    project: headerRow.indexOf('project'),
-                                    supplier: headerRow.indexOf('supplier')
+                                    desc: findIndex(['description', 'desc']),
+                                    category: findIndex(['trade', 'category']), // 這裡增加了對 trade 的支援
+                                    unit: findIndex(['unit']),
+                                    rate: findIndex(['rate', 'price']),
+                                    date: findIndex(['date']),
+                                    project: findIndex(['project']),
+                                    supplier: findIndex(['supplier'])
                                 };
 
                                 for (let i = 1; i < lines.length; i++) {
                                     if (!lines[i].trim()) continue;
                                     const row = parseCSVLine(lines[i]);
                                     
-                                    // 如果找不到標題，使用預設索引 (Fallback)
                                     const getVal = (key, defaultIdx) => {
                                         const idx = map[key];
                                         return (idx !== -1 && idx < row.length) ? row[idx] : row[defaultIdx];
@@ -416,8 +424,8 @@
                                     if (row.length >= 2) {
                                         newRecords.push({
                                             id: Date.now() + i,
-                                            desc: getVal('desc', 0) || "Imported", // 預設第0欄
-                                            category: getVal('category', 1) || "Other", // 預設第1欄
+                                            desc: getVal('desc', 0) || "Imported",
+                                            category: getVal('category', 1) || "Other",
                                             unit: getVal('unit', 2) || "item",
                                             rate: parseFloat(getVal('rate', 3)) || 0,
                                             date: getVal('date', 4) || new Date().toISOString().split('T')[0],
