@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>QS Price Master Pro</title>
     
-    <!-- 使用 HTTPS 的全球通用 CDN，確保 GitHub Pages 可讀取 -->
+    <!-- 使用 HTTPS 的全球通用 CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
         
-        /* 載入狀態樣式：Vue 準備好之前顯示 Loading... */
+        /* 載入狀態樣式 */
         [v-cloak] > * { display: none; }
         [v-cloak]::before {
             content: "System Loading...";
@@ -210,7 +210,7 @@
                 <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
                     <div>
                         <h2 class="text-lg font-bold text-slate-800">Export Settings</h2>
-                        <p class="text-xs text-slate-500">Customize CSV columns</p>
+                        <p class="text-xs text-slate-500">Drag arrows to reorder columns</p>
                     </div>
                     <button @click="showExportModalState = false" class="text-slate-400 hover:text-slate-600">
                         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -254,9 +254,10 @@
                 const searchQuery = ref("");
                 const filterCategory = ref("");
                 
+                // 修改預設順序：Description 放在 Category 之前
                 const exportColumns = ref([
-                    { key: 'category', label: 'Category', active: true },
                     { key: 'desc', label: 'Description', active: true },
+                    { key: 'category', label: 'Category', active: true },
                     { key: 'unit', label: 'Unit', active: true },
                     { key: 'rate', label: 'Rate', active: true },
                     { key: 'date', label: 'Date', active: true },
@@ -279,15 +280,9 @@
                 onMounted(() => {
                     try {
                         const savedData = localStorage.getItem('qs_price_db');
-                        if (savedData) {
-                            items.value = JSON.parse(savedData);
-                        } else {
-                            // 預設沒有資料，保持空白
-                            items.value = [];
-                        }
-                    } catch (e) {
-                        console.error("Error loading data:", e);
-                    }
+                        if (savedData) items.value = JSON.parse(savedData);
+                        else items.value = [];
+                    } catch (e) { console.error("Error loading data:", e); }
                 });
 
                 watch(items, (newVal) => {
@@ -394,19 +389,40 @@
                                 newRecords = JSON.parse(content);
                             } else {
                                 const lines = content.split(/\r\n|\n/);
+                                if (lines.length < 2) return;
+
+                                // 智能標題偵測 (Smart Header Detection)
+                                const headerRow = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+                                const map = {
+                                    desc: headerRow.indexOf('description'),
+                                    category: headerRow.indexOf('category'),
+                                    unit: headerRow.indexOf('unit'),
+                                    rate: headerRow.indexOf('rate'),
+                                    date: headerRow.indexOf('date'),
+                                    project: headerRow.indexOf('project'),
+                                    supplier: headerRow.indexOf('supplier')
+                                };
+
                                 for (let i = 1; i < lines.length; i++) {
                                     if (!lines[i].trim()) continue;
                                     const row = parseCSVLine(lines[i]);
-                                    if (row.length >= 4) {
+                                    
+                                    // 如果找不到標題，使用預設索引 (Fallback)
+                                    const getVal = (key, defaultIdx) => {
+                                        const idx = map[key];
+                                        return (idx !== -1 && idx < row.length) ? row[idx] : row[defaultIdx];
+                                    };
+
+                                    if (row.length >= 2) {
                                         newRecords.push({
                                             id: Date.now() + i,
-                                            category: row[0] || "Other",
-                                            desc: row[1] || "Imported",
-                                            unit: row[2] || "item",
-                                            rate: parseFloat(row[3]) || 0,
-                                            date: row[4] || new Date().toISOString().split('T')[0],
-                                            project: row[5] || "",
-                                            supplier: row[6] || ""
+                                            desc: getVal('desc', 0) || "Imported", // 預設第0欄
+                                            category: getVal('category', 1) || "Other", // 預設第1欄
+                                            unit: getVal('unit', 2) || "item",
+                                            rate: parseFloat(getVal('rate', 3)) || 0,
+                                            date: getVal('date', 4) || new Date().toISOString().split('T')[0],
+                                            project: getVal('project', 5) || "",
+                                            supplier: getVal('supplier', 6) || ""
                                         });
                                     }
                                 }
@@ -414,7 +430,10 @@
                             if (newRecords.length > 0 && confirm(`Append ${newRecords.length} records?`)) {
                                 items.value = [...newRecords, ...items.value];
                             }
-                        } catch(err) { alert("Error parsing file"); }
+                        } catch(err) { 
+                            console.error(err);
+                            alert("Error parsing file. Please check CSV format."); 
+                        }
                         event.target.value = '';
                     };
                     reader.readAsText(file);
