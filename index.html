@@ -245,7 +245,6 @@
                 const searchQuery = ref("");
                 const filterCategory = ref("");
                 
-                // 預設導出欄位設定
                 const exportColumns = ref([
                     { key: 'category', label: 'Category', active: true },
                     { key: 'desc', label: 'Description', active: true },
@@ -298,7 +297,7 @@
                 });
 
                 const openAddModal = () => {
-                    form.value.desc = ""; form.value.rate = ""; // 簡單重置
+                    form.value.desc = ""; form.value.rate = "";
                     showModal.value = true;
                 };
 
@@ -314,7 +313,6 @@
 
                 const formatNumber = (num) => num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "0";
 
-                // --- 導出功能邏輯 ---
                 const openExportModal = () => { showExportModalState.value = true; };
 
                 const moveColumn = (index, direction) => {
@@ -328,17 +326,11 @@
 
                 const executeExport = () => {
                     const activeCols = exportColumns.value.filter(c => c.active);
-                    
-                    // 1. 建立 Header
                     let csvContent = "\uFEFF" + activeCols.map(c => c.label).join(",") + "\n";
 
-                    // 2. 建立 Data Rows
-                    // 注意：這裡導出的是「當前篩選後」的數據，還是「全部」數據？
-                    // 通常導出全部比較保險，或者導出篩選後的。這裡設定為導出篩選後的 (filteredItems)，所見即所得。
                     filteredItems.value.forEach(item => {
                         const row = activeCols.map(col => {
                             let val = item[col.key] || "";
-                            // 處理 CSV 逗號與引號
                             if (typeof val === 'string') {
                                 val = val.replace(/"/g, '""');
                                 if (val.includes(',') || val.includes('"') || val.includes('\n')) {
@@ -358,7 +350,7 @@
                     showExportModalState.value = false;
                 };
 
-                // --- 導入功能邏輯 (保持不變) ---
+                // CSV 解析與導入功能
                 const parseCSVLine = (text) => {
                     const re_valid = /^\s*(?:'[^']*'|"[^"]*"|[^,'"]*)\s*(?:,\s*(?:'[^']*'|"[^"]*"|[^,'"]*)\s*)*$/;
                     const re_value = /(?!\s*$)\s*(?:'([^']*)'|"([^"]*)"|([^,'"]*))\s*(?:,|$)/g;
@@ -389,8 +381,6 @@
                                     if (!lines[i].trim()) continue;
                                     const row = parseCSVLine(lines[i]);
                                     if (row.length >= 4) {
-                                        // 導入時還是假設標準格式，若要支援自定義導入會太複雜
-                                        // 這裡假設用戶導入的是我們標準格式的備份
                                         newRecords.push({
                                             id: Date.now() + i,
                                             category: row[0] || "Other",
