@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>QS Price Master - Excel Pro</title>
+    <title>QS Price Master - Excel Template</title>
     
     <!-- UI 樣式庫 -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -23,7 +23,6 @@
 
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .animate-fade-in { animation: fadeIn 0.2s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         
         .btn-base { @apply px-3 py-2 rounded-md transition shadow-sm font-medium text-sm flex items-center justify-center gap-2 cursor-pointer select-none; }
         .btn-primary { @apply bg-slate-900 text-white hover:bg-slate-800; }
@@ -336,45 +335,51 @@
                     }
                 };
 
-                // --- 完整版 Excel 匯出邏輯 ---
+                // --- 修正後的 Excel 匯出邏輯 ---
                 const executeExport = () => {
                     if (!window.XLSX) { alert("Excel engine loading... please wait."); return; }
 
                     const activeCols = exportColumns.value.filter(c => c.active);
+                    const headers = activeCols.map(c => c.label);
                     
-                    // 1. 準備主要數據 (確保格式正確)
-                    const data = filteredItems.value.map(item => {
-                        const row = {};
-                        activeCols.forEach(col => {
-                            let val = item[col.key];
-                            // 強制轉換數字，避免變成文字
-                            if (col.key === 'rate') val = parseFloat(val) || 0;
-                            row[col.label] = val || ""; 
+                    let ws;
+
+                    if (filteredItems.value.length === 0) {
+                        // 【關鍵修復】如果沒有數據，強制建立一個只有標題的 Sheet
+                        ws = XLSX.utils.aoa_to_sheet([headers]);
+                    } else {
+                        // 有數據時，正常建立
+                        const data = filteredItems.value.map(item => {
+                            const row = {};
+                            activeCols.forEach(col => {
+                                let val = item[col.key];
+                                if (col.key === 'rate') val = parseFloat(val) || 0;
+                                row[col.label] = val || ""; 
+                            });
+                            return row;
                         });
-                        return row;
-                    });
+                        // 注意：這裡使用 header 參數強制指定順序
+                        ws = XLSX.utils.json_to_sheet(data, { header: headers });
+                    }
 
                     const wb = XLSX.utils.book_new();
-                    const ws = XLSX.utils.json_to_sheet(data);
 
-                    // 2. 設定欄寬 (關鍵修復：解決顯示不完整問題)
+                    // 設定欄寬
                     const wscols = activeCols.map(col => ({ wch: col.width || 20 }));
                     ws['!cols'] = wscols;
 
-                    // 3. 加入 Trade List 參考分頁 (讓檔案更完整)
+                    // 加入 Trade List 參考分頁
                     const tradeData = categories.map(c => [c]);
                     const ws_trades = XLSX.utils.aoa_to_sheet([["Available Trades"], ...tradeData]);
                     ws_trades['!cols'] = [{ wch: 25 }];
 
-                    // 4. 組合並下載
                     XLSX.utils.book_append_sheet(wb, ws, "Price Data");
-                    XLSX.utils.book_append_sheet(wb, ws_trades, "Trade List");
+                    XLSX.utils.book_append_sheet(wb, ws_trades, "DataList");
                     
                     XLSX.writeFile(wb, `QS_Data_${new Date().toISOString().slice(0,10)}.xlsx`);
                     showExportModalState.value = false;
                 };
 
-                // --- 升級版匯入邏輯 ---
                 const importData = (event) => {
                     const file = event.target.files[0];
                     if (!file) return;
@@ -422,7 +427,6 @@
                                 };
 
                                 let dateVal = getVal('date', 4);
-                                // 處理 Excel 數字日期格式
                                 if (!isNaN(dateVal) && Number(dateVal) > 20000 && Number(dateVal) < 60000) {
                                     const dateObj = new Date((Number(dateVal) - (25567 + 2)) * 86400 * 1000);
                                     dateVal = dateObj.toISOString().split('T')[0];
