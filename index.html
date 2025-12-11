@@ -3,34 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>QS Price Master Pro (Excel Edition)</title>
+    <title>QS Price Master - Excel Pro</title>
     
     <!-- UI 樣式庫 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Vue 框架 -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <!-- SheetJS: 用於處理 Excel 匯入/匯出的強大引擎 -->
+    <!-- SheetJS: Excel 處理核心 -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
         
-        /* 載入狀態 */
         [v-cloak] > * { display: none; }
         [v-cloak]::before {
             content: "System Loading...";
-            display: block;
-            text-align: center;
-            padding-top: 50px;
-            color: #64748b;
-            font-weight: bold;
+            display: block; text-align: center; padding-top: 50px; color: #64748b; font-weight: bold;
         }
 
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .animate-fade-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* UI 元件 */
         .btn-base { @apply px-3 py-2 rounded-md transition shadow-sm font-medium text-sm flex items-center justify-center gap-2 cursor-pointer select-none; }
         .btn-primary { @apply bg-slate-900 text-white hover:bg-slate-800; }
         .btn-secondary { @apply bg-white border border-slate-300 text-slate-700 hover:bg-slate-50; }
@@ -58,8 +52,7 @@
                 <label class="btn-base btn-secondary">
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                     <span class="hidden md:inline">Import</span>
-                    <!-- 支援 .xlsx, .xls, .csv -->
-                    <input type="file" @change="importData" accept=".xlsx,.xls,.csv,.json" class="hidden">
+                    <input type="file" @change="importData" accept=".xlsx,.xls,.csv" class="hidden">
                 </label>
             </div>
         </header>
@@ -261,15 +254,14 @@
                 const searchQuery = ref("");
                 const filterCategory = ref("");
                 
-                // 欄位定義
                 const exportColumns = ref([
-                    { key: 'desc', label: 'Description', active: true },
-                    { key: 'category', label: 'Trade', active: true },
-                    { key: 'unit', label: 'Unit', active: true },
-                    { key: 'rate', label: 'Rate', active: true },
-                    { key: 'date', label: 'Date', active: true },
-                    { key: 'project', label: 'Project', active: true },
-                    { key: 'supplier', label: 'Supplier', active: true }
+                    { key: 'desc', label: 'Description', active: true, width: 40 },
+                    { key: 'category', label: 'Trade', active: true, width: 20 },
+                    { key: 'unit', label: 'Unit', active: true, width: 10 },
+                    { key: 'rate', label: 'Rate', active: true, width: 15 },
+                    { key: 'date', label: 'Date', active: true, width: 15 },
+                    { key: 'project', label: 'Project', active: true, width: 25 },
+                    { key: 'supplier', label: 'Supplier', active: true, width: 20 }
                 ]);
 
                 const categories = [
@@ -344,47 +336,45 @@
                     }
                 };
 
-                // --- 核心功能：Excel 匯出 (包含下拉選單) ---
+                // --- 完整版 Excel 匯出邏輯 ---
                 const executeExport = () => {
+                    if (!window.XLSX) { alert("Excel engine loading... please wait."); return; }
+
                     const activeCols = exportColumns.value.filter(c => c.active);
                     
-                    // 1. 準備數據
+                    // 1. 準備主要數據 (確保格式正確)
                     const data = filteredItems.value.map(item => {
                         const row = {};
                         activeCols.forEach(col => {
-                            row[col.label] = item[col.key] || "";
+                            let val = item[col.key];
+                            // 強制轉換數字，避免變成文字
+                            if (col.key === 'rate') val = parseFloat(val) || 0;
+                            row[col.label] = val || ""; 
                         });
                         return row;
                     });
 
-                    // 2. 建立工作簿
                     const wb = XLSX.utils.book_new();
                     const ws = XLSX.utils.json_to_sheet(data);
 
-                    // 3. 建立下拉選單數據源 (Hidden Sheet)
-                    const ws_data = XLSX.utils.aoa_to_sheet(categories.map(c => [c]));
-                    XLSX.utils.book_append_sheet(wb, ws_data, "DataList");
+                    // 2. 設定欄寬 (關鍵修復：解決顯示不完整問題)
+                    const wscols = activeCols.map(col => ({ wch: col.width || 20 }));
+                    ws['!cols'] = wscols;
 
-                    // 4. 嘗試加入 Data Validation (下拉選單)
-                    // 注意：在 Trade 欄位加入驗證
-                    const tradeColIndex = activeCols.findIndex(c => c.label === "Trade");
-                    if (tradeColIndex !== -1 && data.length > 0) {
-                        // 轉換欄位索引為 Excel 字母 (例如 0 -> A, 1 -> B)
-                        const colLetter = XLSX.utils.encode_col(tradeColIndex);
-                        const range = XLSX.utils.decode_range(ws['!ref']);
-                        
-                        // 雖然 SheetJS 免費版對寫入驗證支援有限，但我們保留此邏輯以備將來相容
-                        // 這裡主要是建立標準的 Excel 結構
-                    }
+                    // 3. 加入 Trade List 參考分頁 (讓檔案更完整)
+                    const tradeData = categories.map(c => [c]);
+                    const ws_trades = XLSX.utils.aoa_to_sheet([["Available Trades"], ...tradeData]);
+                    ws_trades['!cols'] = [{ wch: 25 }];
 
-                    // 5. 匯出檔案
+                    // 4. 組合並下載
                     XLSX.utils.book_append_sheet(wb, ws, "Price Data");
-                    XLSX.writeFile(wb, `QS_Data_${new Date().toISOString().slice(0,10)}.xlsx`);
+                    XLSX.utils.book_append_sheet(wb, ws_trades, "Trade List");
                     
+                    XLSX.writeFile(wb, `QS_Data_${new Date().toISOString().slice(0,10)}.xlsx`);
                     showExportModalState.value = false;
                 };
 
-                // --- 核心功能：Excel/CSV 智慧匯入 ---
+                // --- 升級版匯入邏輯 ---
                 const importData = (event) => {
                     const file = event.target.files[0];
                     if (!file) return;
@@ -396,13 +386,10 @@
                             const workbook = XLSX.read(data, { type: 'array' });
                             const firstSheetName = workbook.SheetNames[0];
                             const worksheet = workbook.Sheets[firstSheetName];
-                            
-                            // 將 Excel 轉為 JSON (第一列為標題)
                             const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                             
-                            if (jsonData.length < 2) return; // 只有標題或空的
+                            if (jsonData.length < 2) return;
 
-                            // 智慧標題對應
                             const headerRow = jsonData[0].map(h => String(h).toLowerCase().trim());
                             
                             const findIndex = (keys) => {
@@ -430,16 +417,14 @@
 
                                 const getVal = (key, defaultIdx) => {
                                     const idx = map[key];
-                                    // Excel 讀出來可能是數字或字串，需處理
                                     let val = (idx !== -1 && row[idx] !== undefined) ? row[idx] : row[defaultIdx];
                                     return val !== undefined ? String(val).trim() : "";
                                 };
 
-                                // 處理 Excel 日期格式 (如果是數字的話)
                                 let dateVal = getVal('date', 4);
-                                if (!isNaN(dateVal) && dateVal > 20000 && dateVal < 60000) {
-                                    // 簡單轉換 Excel 序列日期
-                                    const dateObj = new Date((dateVal - (25567 + 2)) * 86400 * 1000);
+                                // 處理 Excel 數字日期格式
+                                if (!isNaN(dateVal) && Number(dateVal) > 20000 && Number(dateVal) < 60000) {
+                                    const dateObj = new Date((Number(dateVal) - (25567 + 2)) * 86400 * 1000);
                                     dateVal = dateObj.toISOString().split('T')[0];
                                 } else if (!dateVal) {
                                     dateVal = new Date().toISOString().split('T')[0];
@@ -457,12 +442,12 @@
                                 });
                             }
 
-                            if (newRecords.length > 0 && confirm(`Successfully parsed ${newRecords.length} records. Import now?`)) {
+                            if (newRecords.length > 0 && confirm(`Found ${newRecords.length} records. Import?`)) {
                                 items.value = [...newRecords, ...items.value];
                             }
                         } catch(err) {
                             console.error(err);
-                            alert("Error reading file. Please ensure it is a valid Excel or CSV file.");
+                            alert("Error reading file. Please check format.");
                         }
                         event.target.value = '';
                     };
