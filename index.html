@@ -3,14 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>QS Price Master - Excel Template</title>
+    <title>QS Price Master - ExcelJS Edition</title>
     
     <!-- UI 樣式庫 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Vue 框架 -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <!-- SheetJS: Excel 處理核心 -->
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- ExcelJS: 支援下拉選單的強大 Excel 引擎 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <!-- FileSaver: 用於保存檔案 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
@@ -23,6 +26,7 @@
 
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         
         .btn-base { @apply px-3 py-2 rounded-md transition shadow-sm font-medium text-sm flex items-center justify-center gap-2 cursor-pointer select-none; }
         .btn-primary { @apply bg-slate-900 text-white hover:bg-slate-800; }
@@ -40,7 +44,7 @@
                 <div class="w-8 h-8 bg-slate-900 text-white flex items-center justify-center rounded-lg font-bold text-lg flex-shrink-0">Q</div>
                 <div class="leading-tight">
                     <h1 class="text-base font-bold text-slate-900">QS Price Master</h1>
-                    <p class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold hidden md:block">Excel Edition</p>
+                    <p class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold hidden md:block">ExcelJS Pro</p>
                 </div>
             </div>
             <div class="flex gap-2">
@@ -51,7 +55,7 @@
                 <label class="btn-base btn-secondary">
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                     <span class="hidden md:inline">Import</span>
-                    <input type="file" @change="importData" accept=".xlsx,.xls,.csv" class="hidden">
+                    <input type="file" @change="importData" accept=".xlsx,.xls" class="hidden">
                 </label>
             </div>
         </header>
@@ -335,68 +339,87 @@
                     }
                 };
 
-                // --- 修正後的 Excel 匯出邏輯 ---
-                const executeExport = () => {
-                    if (!window.XLSX) { alert("Excel engine loading... please wait."); return; }
+                // --- 核心升級：使用 ExcelJS 進行匯出 ---
+                const executeExport = async () => {
+                    if (!window.ExcelJS) { alert("Excel engine loading..."); return; }
 
-                    const activeCols = exportColumns.value.filter(c => c.active);
-                    const headers = activeCols.map(c => c.label);
+                    const workbook = new ExcelJS.Workbook();
+                    workbook.creator = 'QS Price Master';
+                    workbook.created = new Date();
+
+                    // 1. 建立數據分頁
+                    const sheet = workbook.addWorksheet('Price Data');
                     
-                    let ws;
+                    // 2. 建立隱藏的列表分頁 (用於下拉選單)
+                    const listSheet = workbook.addWorksheet('DataList', { state: 'hidden' });
+                    categories.forEach((cat, index) => {
+                        listSheet.getCell(`A${index + 1}`).value = cat;
+                    });
 
-                    if (filteredItems.value.length === 0) {
-                        // 【關鍵修復】如果沒有數據，強制建立一個只有標題的 Sheet
-                        ws = XLSX.utils.aoa_to_sheet([headers]);
-                    } else {
-                        // 有數據時，正常建立
-                        const data = filteredItems.value.map(item => {
-                            const row = {};
-                            activeCols.forEach(col => {
-                                let val = item[col.key];
-                                if (col.key === 'rate') val = parseFloat(val) || 0;
-                                row[col.label] = val || ""; 
-                            });
-                            return row;
+                    // 3. 設定欄位標題與寬度
+                    const activeCols = exportColumns.value.filter(c => c.active);
+                    sheet.columns = activeCols.map(col => ({
+                        header: col.label,
+                        key: col.key,
+                        width: col.width || 20
+                    }));
+
+                    // 4. 填入數據
+                    filteredItems.value.forEach(item => {
+                        const rowData = {};
+                        activeCols.forEach(col => {
+                            let val = item[col.key];
+                            if (col.key === 'rate') val = parseFloat(val) || 0;
+                            rowData[col.key] = val;
                         });
-                        // 注意：這裡使用 header 參數強制指定順序
-                        ws = XLSX.utils.json_to_sheet(data, { header: headers });
+                        sheet.addRow(rowData);
+                    });
+
+                    // 5. 【關鍵】加入下拉選單驗證 (Data Validation)
+                    // 找到 Trade 欄位的索引 (ExcelJS 欄位從 1 開始)
+                    const tradeColIndex = activeCols.findIndex(c => c.label === 'Trade') + 1;
+                    
+                    if (tradeColIndex > 0) {
+                        const colLetter = sheet.getColumn(tradeColIndex).letter;
+                        // 為第 2 行到第 1000 行加入下拉選單 (預留空間給新資料)
+                        for (let i = 2; i <= 1000; i++) {
+                            sheet.getCell(`${colLetter}${i}`).dataValidation = {
+                                type: 'list',
+                                allowBlank: true,
+                                formulae: [`'DataList'!$A$1:$A$${categories.length}`] // 引用隱藏分頁
+                            };
+                        }
                     }
 
-                    const wb = XLSX.utils.book_new();
-
-                    // 設定欄寬
-                    const wscols = activeCols.map(col => ({ wch: col.width || 20 }));
-                    ws['!cols'] = wscols;
-
-                    // 加入 Trade List 參考分頁
-                    const tradeData = categories.map(c => [c]);
-                    const ws_trades = XLSX.utils.aoa_to_sheet([["Available Trades"], ...tradeData]);
-                    ws_trades['!cols'] = [{ wch: 25 }];
-
-                    XLSX.utils.book_append_sheet(wb, ws, "Price Data");
-                    XLSX.utils.book_append_sheet(wb, ws_trades, "DataList");
+                    // 6. 匯出檔案
+                    const buffer = await workbook.xlsx.writeBuffer();
+                    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                    saveAs(blob, `QS_Data_${new Date().toISOString().slice(0,10)}.xlsx`);
                     
-                    XLSX.writeFile(wb, `QS_Data_${new Date().toISOString().slice(0,10)}.xlsx`);
                     showExportModalState.value = false;
                 };
 
+                // --- 核心升級：使用 ExcelJS 進行匯入 ---
                 const importData = (event) => {
                     const file = event.target.files[0];
                     if (!file) return;
 
                     const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const data = new Uint8Array(e.target.result);
+                    reader.onload = async (e) => {
                         try {
-                            const workbook = XLSX.read(data, { type: 'array' });
-                            const firstSheetName = workbook.SheetNames[0];
-                            const worksheet = workbook.Sheets[firstSheetName];
-                            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                            const buffer = e.target.result;
+                            const workbook = new ExcelJS.Workbook();
+                            await workbook.xlsx.load(buffer);
                             
-                            if (jsonData.length < 2) return;
+                            const worksheet = workbook.getWorksheet(1); // 讀取第一個分頁
+                            if (!worksheet) return;
 
-                            const headerRow = jsonData[0].map(h => String(h).toLowerCase().trim());
-                            
+                            // 讀取標題列 (第一行)
+                            const headerRow = [];
+                            worksheet.getRow(1).eachCell((cell, colNumber) => {
+                                headerRow[colNumber] = cell.value ? String(cell.value).toLowerCase().trim() : '';
+                            });
+
                             const findIndex = (keys) => {
                                 for (const key of keys) {
                                     const idx = headerRow.indexOf(key);
@@ -416,35 +439,51 @@
                             };
 
                             let newRecords = [];
-                            for (let i = 1; i < jsonData.length; i++) {
-                                const row = jsonData[i];
-                                if (!row || row.length === 0) continue;
+                            worksheet.eachRow((row, rowNumber) => {
+                                if (rowNumber === 1) return; // 跳過標題
 
                                 const getVal = (key, defaultIdx) => {
                                     const idx = map[key];
-                                    let val = (idx !== -1 && row[idx] !== undefined) ? row[idx] : row[defaultIdx];
-                                    return val !== undefined ? String(val).trim() : "";
+                                    // ExcelJS 的 row.getCell(idx)
+                                    // 注意：headerRow 陣列索引跟 ExcelJS 欄位索引可能差 1，需小心處理
+                                    // 這裡我們直接用 map 存的是 headerRow 的 index (從 1 開始)
+                                    let cell = (idx !== -1) ? row.getCell(idx) : row.getCell(defaultIdx);
+                                    
+                                    // 處理 Rich Text 或公式
+                                    let val = cell.value;
+                                    if (val && typeof val === 'object') {
+                                        if (val.text) val = val.text; // Rich Text
+                                        else if (val.result) val = val.result; // Formula
+                                    }
+                                    return val !== null && val !== undefined ? String(val).trim() : "";
                                 };
 
-                                let dateVal = getVal('date', 4);
-                                if (!isNaN(dateVal) && Number(dateVal) > 20000 && Number(dateVal) < 60000) {
-                                    const dateObj = new Date((Number(dateVal) - (25567 + 2)) * 86400 * 1000);
-                                    dateVal = dateObj.toISOString().split('T')[0];
+                                let dateVal = getVal('date', 5);
+                                // 簡單日期處理
+                                if (!isNaN(dateVal) && Number(dateVal) > 10000) { 
+                                    // 可能是 Excel Serial Date，這裡簡化處理，直接用當天
+                                    // ExcelJS 其實會自動轉 Date 物件，如果是物件：
+                                    const cellVal = row.getCell(map['date'] !== -1 ? map['date'] : 5).value;
+                                    if (cellVal instanceof Date) {
+                                        dateVal = cellVal.toISOString().split('T')[0];
+                                    } else {
+                                        dateVal = new Date().toISOString().split('T')[0];
+                                    }
                                 } else if (!dateVal) {
                                     dateVal = new Date().toISOString().split('T')[0];
                                 }
 
                                 newRecords.push({
-                                    id: Date.now() + i,
-                                    desc: getVal('desc', 0) || "Imported Item",
-                                    category: getVal('category', 1) || "Other",
-                                    unit: getVal('unit', 2) || "item",
-                                    rate: parseFloat(getVal('rate', 3)) || 0,
+                                    id: Date.now() + rowNumber,
+                                    desc: getVal('desc', 1) || "Imported Item",
+                                    category: getVal('category', 2) || "Other",
+                                    unit: getVal('unit', 3) || "item",
+                                    rate: parseFloat(getVal('rate', 4)) || 0,
                                     date: dateVal,
-                                    project: getVal('project', 5) || "",
-                                    supplier: getVal('supplier', 6) || ""
+                                    project: getVal('project', 6) || "",
+                                    supplier: getVal('supplier', 7) || ""
                                 });
-                            }
+                            });
 
                             if (newRecords.length > 0 && confirm(`Found ${newRecords.length} records. Import?`)) {
                                 items.value = [...newRecords, ...items.value];
